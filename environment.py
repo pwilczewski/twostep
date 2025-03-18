@@ -6,17 +6,11 @@ class LlamaEnv:
     """Lightweight custom environment with large action and observation spaces"""
 
     def _select_random_context(self):
-      first_item = next(self.dataset)
-      
-      attention_mask = first_item['attention_mask']
-      valid_indices = torch.where(attention_mask == 1)[0]
-      selected_index = random.choice(valid_indices.tolist())
+      fixed_data = self.fixed_data
+      start_index = random.randint(0, fixed_data['input_ids'].size(0) - 1)
 
-      input_ids = first_item['input_ids']
-      input_ids[selected_index + 1:] = 128001
-      attention_mask[selected_index + 1:] = 0
-
-      return {'input_ids': input_ids.unsqueeze(0), 'attention_mask': attention_mask.unsqueeze(0)}
+      return {'input_ids': fixed_data['input_ids'][0:start_index].unsqueeze(0), 
+              'attention_mask': fixed_data['attention_mask'][0:start_index].unsqueeze(0)}
     
     def __init__(self, model, dataset):
         self.action_size = 128256
@@ -26,32 +20,25 @@ class LlamaEnv:
         self.memory = deque(maxlen=MEMORY_SIZE)
 
         self.model = model
-        self.dataset = iter(dataset) # tokenized dataset, created using load_dataset
+        dataset = iter(dataset) # tokenized dataset, created using load_dataset
+        self.fixed_data = next(dataset)
         
         self.context = self._select_random_context()  # size = (1, max_length)
-        self.state = self.model(input_ids=self.context['input_ids']).logits  # size = (1, max_length, state_size)
+        self.state = self.model()  # size = (1, max_length, state_size)
     
-    # everything should be batched eventually, doing one at a time for now
     def step(self, action):
         with torch.no_grad():
           # Calculate reward as log probability of the selected action state
           log_probs = torch.log_softmax(self.state, dim=-1)
-          reward = log_probs[0, -1, action].item()  # Get log prob of selected action
-          
-          padding_positions = (self.context["attention_mask"] == 0).to(dtype=torch.int)  # Convert to int for argmax
-          first_padding_idx = torch.argmax(padding_positions, dim=1)  # First 0 per batch
-          batch_indices = torch.arange(1)
+          reward = log_probs[0, -1, action].item()
 
-          # Replace the first padding token in input_ids
-          self.context["input_ids"][batch_indices, first_padding_idx] = action
-
-          # Update attention mask
-          self.context["attention_mask"][batch_indices, first_padding_idx] = 1
+          # Update context with chosen action
+          self.context["input_ids"] = torch.cat((self.context["input_ids"], torch.tensor([[action]])), dim=1)
+          self.context["attention_mask"] = torch.cat((self.context["attention_mask"], torch.tensor([[1]])), dim=1)
 
           # Update state using model logits with new context
-          outputs = self.model(input_ids=self.context['input_ids'])
-          next_state = outputs.logits
-          done = first_padding_idx == 511 or action == 128001
+          next_state = self.model() # not yet actually using the new context
+          done = self.context["input_ids"].shape[1] == 512 or action == 128001
 
           sarsd = (self.state, action, reward, next_state, done)
           self.memory.append(sarsd)
@@ -63,7 +50,7 @@ class LlamaEnv:
         
         return sarsd
     
-    def sample_experiences(self, BATCH_SIZE=32):
+    def sample_experiences(self, BATCH_SIZE=1):
         batch = random.sample(self.memory, BATCH_SIZE)
         states, actions, rewards, next_states, dones = zip(*batch)
         
@@ -80,7 +67,7 @@ class LlamaEnv:
         """Reset the environment"""
         with torch.no_grad():
           self.context = self._select_random_context()
-          self.state = self.model(input_ids=self.context['input_ids']).logits
+          self.state = self.model()
 
         return self.state
     

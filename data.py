@@ -4,9 +4,9 @@ from datasets import load_dataset
 def tokenize_function(examples, tokenizer):
     max_length = 512
     
+    # removed padding
     tokenized = tokenizer(
         examples['text'],
-        padding='max_length',
         truncation=True,
         max_length=max_length,
         return_tensors='pt'
