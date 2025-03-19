@@ -1,5 +1,5 @@
 from environment import LlamaEnv
-from data import config_dataset
+from dataset_utils import load_tokenized_dataset
 import os
 from dotenv import load_dotenv
 import torch
@@ -17,7 +17,7 @@ target_network.eval()  # Target network does not train
 
 optimizer = optim.Adam(q_network.parameters(), lr=0.001)
 
-dataset = config_dataset(model_name, HF_TOKEN)
+dataset = load_tokenized_dataset(model_name, HF_TOKEN)
 env = LlamaEnv(target_network, dataset)
 
 num_steps = 0

@@ -19,7 +19,7 @@ def tokenize_function(examples, tokenizer):
     
     return tokenized
 
-def config_dataset(model_name, HF_TOKEN):
+def load_tokenized_dataset(model_name, HF_TOKEN):
 
     tokenizer = PreTrainedTokenizerFast.from_pretrained(model_name, token=HF_TOKEN)
     tokenizer.pad_token = tokenizer.eos_token
